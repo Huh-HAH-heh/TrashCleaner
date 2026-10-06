@@ -87,14 +87,20 @@ def main():
             if item.name == script_name:
                 continue
 
-            if temp_dir in item.parents:
+            relative_parts = item.relative_to(target_dir).parts
+
+            # Не даём recursive mode заходить во временные каталоги.
+            if (
+                relative_parts
+                and relative_parts[0].startswith(".TrashCleaner_tmp_")
+            ):
                 continue
 
             extension = get_extension(item)
             destination_dir = target_dir / extension
 
-            # В рекурсивном режиме уже отсортированные файлы
-            # из корневых каталогов расширений не трогаем.
+            # Уже отсортированные файлы в корневых каталогах
+            # расширений не трогаем при recursive запуске.
             if args.recursive and destination_dir in item.parents:
                 continue
 
@@ -110,9 +116,8 @@ def main():
 
     print(f"Files found: {len(all_files)}")
 
-    # Сначала складываем найденные файлы во временное дерево.
-    # Благодаря этому дальнейшие перемещения уже не меняют
-    # дерево, по которому выполнялся рекурсивный поиск.
+    # Сначала переносим всё найденное во временное дерево.
+    # После этого исходное дерево больше не меняется во время сортировки.
     staged_files = []
     failed = 0
 
@@ -123,7 +128,6 @@ def main():
         try:
             stage_path.parent.mkdir(parents=True, exist_ok=True)
             file.rename(stage_path)
-
             staged_files.append((stage_path, file.name))
 
         except OSError as error:
@@ -161,9 +165,8 @@ def main():
             failed += 1
             print(f"ERR moving {original_name}: {error}")
 
-    # Очищаем временное дерево только при полном успехе.
-    # Если остались ошибки, файлы в temp оставляем как резерв,
-    # чтобы их можно было восстановить вручную.
+    # При полном успехе удаляем пустое временное дерево.
+    # При ошибках оставляем его как безопасное место для недоведённых файлов.
     if failed == 0 and temp_dir.exists():
         try:
             for item in sorted(
