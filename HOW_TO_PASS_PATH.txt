@@ -1,0 +1,93 @@
+Как передать путь твоей программе
+
+Твой organizer.py уже принимает путь через первый аргумент командной строки.
+
+Если репозиторий находится здесь:
+
+C:\Users\User\Documents\TrashCleaner
+
+и тестовая папка:
+
+C:\Users\User\Documents\TrashCleaner\test_files
+
+то в PowerShell:
+
+cd C:\Users\User\Documents\TrashCleaner
+
+python organizer.py test_files
+
+Внутри программы получится:
+
+sys.argv[0] -> organizer.py
+sys.argv[1] -> test_files
+
+А строка:
+
+target_dir = os.path.abspath(sys.argv[1])
+
+превратит относительный путь test_files в полный путь:
+
+C:\Users\User\Documents\TrashCleaner\test_files
+
+Можно сразу передать полный путь:
+
+python organizer.py "C:\Users\User\Documents\TrashCleaner\test_files"
+
+Кавычки нужны, если в пути есть пробелы.
+
+Можно вообще не передавать путь:
+
+python organizer.py
+
+Тогда сработает:
+
+target_dir = os.getcwd()
+
+Это означает: программа обработает текущую рабочую директорию, то есть папку, из которой была запущена команда.
+
+Например:
+
+cd C:\Temp
+python C:\Users\User\Documents\TrashCleaner\organizer.py
+
+В этом случае будет обработана:
+
+C:\Temp
+
+а не папка, где лежит organizer.py.
+
+Для твоего теста используй:
+
+cd C:\Users\User\Documents\TrashCleaner
+python organizer.py test_files
+
+Ожидаемый результат:
+
+test_files\
+├── Documents\
+│   ├── document1.txt
+│   ├── document2.pdf
+│   └── notes.md
+├── Images\
+│   ├── photo1.jpg
+│   └── photo2.PNG
+├── Audio\
+│   └── song.mp3
+├── Video\
+│   └── movie.mp4
+├── Archives\
+│   └── archive.zip
+└── Other\
+    └── script.py
+
+Если хочешь просто проверить, что аргумент дошёл, твоя программа уже печатает:
+
+Директория: <полный путь>
+
+Поэтому после запуска:
+
+python organizer.py test_files
+
+ты должен увидеть примерно:
+
+Директория: C:\Users\User\Documents\TrashCleaner\test_files
