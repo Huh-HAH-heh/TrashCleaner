@@ -1,66 +1,196 @@
-
 import argparse
 import os
 from pathlib import Path
+
+
+def get_extension(file):
+    extension = file.suffix.replace(".", "").upper()
+
+    if not extension:
+        return "NullExt"
+
+    return extension
+
+
+def get_unique_path(directory, filename):
+    name = Path(filename).stem
+    extension = Path(filename).suffix
+
+    target = directory / filename
+
+    if not target.exists():
+        return target
+
+    counter = 1
+
+    while True:
+        new_name = f"{name}_{counter}{extension}"
+        target = directory / new_name
+
+        if not target.exists():
+            return target
+
+        counter += 1
+
+
 def main():
+    parser = argparse.ArgumentParser(description="TrashCleaner")
 
-	parser = argparse.ArgumentParser(description="appDorCmd")
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Path to directory"
+    )
 
-	parser.add_argument("path",nargs="?",default=None,help="roadToZDir")
-	
-	parser.add_argument("-r","--recursive",action="store_true",help="рекОбход подпапок"
-	
+    parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Recursive directory scan"
+    )
 
-	args = parser.parse_args()
+    args = parser.parse_args()
 
-	if args.path:
-		targetDir = Path(args.path).resolve()
-	else:
-		targetDir = Path(os.getcwd()).resolve()
-	print(f"roadToZDir={targetDir}")
-	print(f"Recursive mode: {args.recursive}")
+    if args.path:
+        target_dir = Path(args.path).resolve()
+    else:
+        target_dir = Path(os.getcwd()).resolve()
 
-	if targetDir.exists() and targetDir.is_dir():
-		print("zbs")
-		if args.recursive:
-			allFiles =[item for item in targetDir.rglob("*") if item.is_file() and item.parent.name != item.suffix.replace(".", "").upper()
-]
-		else:
-			allFiles =[item for item in targetDir.glob("*") if item.is_file() and item.parent.name != item.suffix.replace(".", "").upper()
-]
-			
+    print(f"Target directory: {target_dir}")
+    print(f"Recursive mode: {args.recursive}")
 
-		
-		print(f"FilesCount={len(allFiles)}")
-		MCount = 0
+    if not target_dir.exists():
+        print("ERR: directory does not exist")
+        return 1
 
-		for file in allFiles:
-			ext = file.suffix.replace(".","").upper()
-			if not ext:
-				ext = "NullExt"
-			newDir = targetDir / ext
-			if ext in file.parts:
-				continue
-			
+    if not target_dir.is_dir():
+        print("ERR: path is not a directory")
+        return 1
 
-			newDir.mkdir(parents=True,exist_ok=True)
-			newPath = newDir / file.name
-			if newPath.exists():
-				try:
-					if file.stat().st_size == newPath.stat().st_size
-					print(f"СКИП (размеры совпадают): {file.name}")
-                        continue
-					except Exception as e:
-						print(f"ERR проверки размера {file.name}: {e}")
-						continue
-			try:
-				file.rename(newPath )
-				print(f"rename: {file.name} ==> {ext}/")
-				MCount+=1
-			except Exception as e:
-				print(f"ERR {file.name}: {e}")
-	else :
-		print("err")
+    script_name = Path(__file__).name
+    temp_dir = target_dir / f".TrashCleaner_tmp_{os.getpid()}"
 
-if __name__=="__main__":
-	main()
+    try:
+        entries = (
+            target_dir.rglob("*")
+            if args.recursive
+            else target_dir.glob("*")
+        )
+
+        all_files = []
+
+        for item in entries:
+            if not item.is_file():
+                continue
+
+            if item.name == script_name:
+                continue
+
+            if temp_dir in item.parents:
+                continue
+
+            extension = get_extension(item)
+            destination_dir = target_dir / extension
+
+            # В рекурсивном режиме уже отсортированные файлы
+            # из корневых каталогов расширений не трогаем.
+            if args.recursive and destination_dir in item.parents:
+                continue
+
+            all_files.append(item)
+
+    except OSError as error:
+        print(f"ERR scanning directory: {error}")
+        return 1
+
+    if not all_files:
+        print("No files to process")
+        return 0
+
+    print(f"Files found: {len(all_files)}")
+
+    # Сначала складываем найденные файлы во временное дерево.
+    # Благодаря этому дальнейшие перемещения уже не меняют
+    # дерево, по которому выполнялся рекурсивный поиск.
+    staged_files = []
+    failed = 0
+
+    for file in all_files:
+        relative_path = file.relative_to(target_dir)
+        stage_path = temp_dir / relative_path
+
+        try:
+            stage_path.parent.mkdir(parents=True, exist_ok=True)
+            file.rename(stage_path)
+
+            staged_files.append((stage_path, file.name))
+
+        except OSError as error:
+            failed += 1
+            print(f"ERR staging {file}: {error}")
+
+    moved = 0
+    conflicts = 0
+
+    for stage_path, original_name in staged_files:
+        extension = get_extension(stage_path)
+        destination_dir = target_dir / extension
+
+        try:
+            destination_dir.mkdir(parents=True, exist_ok=True)
+
+            target_path = get_unique_path(
+                destination_dir,
+                original_name
+            )
+
+            if target_path.name != original_name:
+                conflicts += 1
+
+            stage_path.rename(target_path)
+
+            print(
+                f"move: {original_name} -> "
+                f"{extension}/{target_path.name}"
+            )
+
+            moved += 1
+
+        except OSError as error:
+            failed += 1
+            print(f"ERR moving {original_name}: {error}")
+
+    # Очищаем временное дерево только при полном успехе.
+    # Если остались ошибки, файлы в temp оставляем как резерв,
+    # чтобы их можно было восстановить вручную.
+    if failed == 0 and temp_dir.exists():
+        try:
+            for item in sorted(
+                temp_dir.rglob("*"),
+                key=lambda path: len(path.parts),
+                reverse=True
+            ):
+                if item.is_dir():
+                    item.rmdir()
+
+            temp_dir.rmdir()
+
+        except OSError as error:
+            print(f"ERR cleaning temp directory: {error}")
+
+    print()
+    print("=== Report ===")
+    print(f"Found:     {len(all_files)}")
+    print(f"Moved:     {moved}")
+    print(f"Conflicts: {conflicts}")
+    print(f"Failed:    {failed}")
+
+    if failed:
+        print(f"Temp files remain in: {temp_dir}")
+
+    return 0 if failed == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
